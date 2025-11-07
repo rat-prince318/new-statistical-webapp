@@ -327,8 +327,8 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
   let standardError: number;
   let std: number;
   
-  if (knownVariance && populationVariance !== undefined) {
-    // Known variance case
+  if (knownVariance && populationVariance !== undefined && populationVariance > 0) {
+    // Known variance case - ensure variance is positive
     standardError = Math.sqrt(populationVariance) / Math.sqrt(n);
     std = Math.sqrt(populationVariance);
   } else {
@@ -341,9 +341,8 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
   let criticalValue: number;
   let method: string;
   
-  if (knownVariance) {
-    // Known variance, use z-distribution
-// Calculate z critical value based on confidence level
+  if (knownVariance && populationVariance !== undefined && populationVariance > 0) {
+    // Known variance and valid population variance, use z-distribution
     switch (confidenceLevel) {
       case 0.90:
         criticalValue = 1.645;
@@ -357,18 +356,15 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
       default:
         // For other confidence levels, use approximation
         const alpha = 1 - confidenceLevel;
-        // Use inverse error function to approximate z-value
-// Using Taylor expansion approximation
         const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - alpha/2) - 1);
         criticalValue = Math.abs(zApprox);
     }
-    method = knownVariance ? 'Z-distribution (known variance)' : 'Z-distribution (unknown variance, large sample)';
+    method = 'Z-distribution (known variance)';
 
   } else {
     // Unknown variance
     if (isNormal || n <= 30) {
       // Normal distribution or small sample, use t-distribution
-// Using approximate t-critical value table
       const df = n - 1;
       criticalValue = getApproximateTCriticalValue(df, confidenceLevel);
       method = 't distribution (normal, unknown variance)';
@@ -390,7 +386,6 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
           criticalValue = Math.abs(zApprox);
       }
       method = 'Z-distribution (non-normal, large sample, unknown variance)';
-
     }
   }
   
@@ -509,11 +504,17 @@ export function calculateDifferences(before: number[], after: number[]): number[
   return before.map((val, index) => after[index] - val);
 }
 
+/**
+ * 置信区间类型
+ */
+export type ConfidenceIntervalType = 'two-sided' | 'one-sided-lower' | 'one-sided-upper';
+
 // Single sample mean confidence interval
 export function calculateOneSampleMeanCI(
   data: number[], 
   confidenceLevel: number,
-  knownVariance?: number
+  knownVariance?: number,
+  intervalType: ConfidenceIntervalType = 'two-sided'
 ): {
   mean: number;
   standardError: number;
@@ -521,36 +522,87 @@ export function calculateOneSampleMeanCI(
   lowerBound: number;
   upperBound: number;
   method: string;
+  criticalValue?: number;
+  intervalType: ConfidenceIntervalType;
 } {
   const n = data.length;
   const mean = calculateMean(data);
   let standardError: number;
   let marginOfError: number;
   let method: string;
+  let criticalValue: number;
+  let lowerBound: number;
+  let upperBound: number;
   
-  if (knownVariance !== undefined) {
+  if (knownVariance !== undefined && knownVariance > 0) {
     // Use z-test (known variance)
     standardError = Math.sqrt(knownVariance) / Math.sqrt(n);
-    const zCritical = getZCriticalValue(confidenceLevel);
-    marginOfError = zCritical * standardError;
+    
+    // 根据置信区间类型计算临界值
+    if (intervalType === 'two-sided') {
+      criticalValue = getZCriticalValue(confidenceLevel);
+    } else {
+      // 单边检验使用1 - α的置信水平
+      criticalValue = getZCriticalValue(confidenceLevel * 2 - 1);
+    }
+    
+    marginOfError = criticalValue * standardError;
     method = 'z-test (known variance)';
+    
+    // 根据区间类型计算上下限
+    if (intervalType === 'two-sided') {
+      lowerBound = mean - marginOfError;
+      upperBound = mean + marginOfError;
+    } else if (intervalType === 'one-sided-lower') {
+      // 左侧单边：计算上限，下限为负无穷
+      lowerBound = -Infinity;
+      upperBound = mean + marginOfError;
+    } else { // one-sided-upper
+      // 右侧单边：计算下限，上限为无穷
+      lowerBound = mean - marginOfError;
+      upperBound = Infinity;
+    }
   } else {
     // Use t-test (unknown variance)
     const stdDev = calculateStdDev(data);
     standardError = stdDev / Math.sqrt(n);
     const degreesOfFreedom = n - 1;
-    const tCritical = getTCriticalValue(confidenceLevel, degreesOfFreedom);
-    marginOfError = tCritical * standardError;
+    
+    // 根据置信区间类型计算临界值
+    if (intervalType === 'two-sided') {
+      criticalValue = getTCriticalValue(confidenceLevel, degreesOfFreedom);
+    } else {
+      // 单边检验使用1 - α的置信水平
+      criticalValue = getTCriticalValue(confidenceLevel * 2 - 1, degreesOfFreedom);
+    }
+    
+    marginOfError = criticalValue * standardError;
     method = 't-test (unknown variance)';
+    
+    // 根据区间类型计算上下限
+    if (intervalType === 'two-sided') {
+      lowerBound = mean - marginOfError;
+      upperBound = mean + marginOfError;
+    } else if (intervalType === 'one-sided-lower') {
+      // 左侧单边：计算上限，下限为负无穷
+      lowerBound = -Infinity;
+      upperBound = mean + marginOfError;
+    } else { // one-sided-upper
+      // 右侧单边：计算下限，上限为无穷
+      lowerBound = mean - marginOfError;
+      upperBound = Infinity;
+    }
   }
   
   return {
     mean,
     standardError,
     marginOfError,
-    lowerBound: mean - marginOfError,
-    upperBound: mean + marginOfError,
-    method
+    lowerBound,
+    upperBound,
+    method,
+    criticalValue,
+    intervalType
   };
 }
 

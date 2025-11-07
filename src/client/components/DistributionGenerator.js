@@ -11,7 +11,7 @@ var __assign = (this && this.__assign) || function () {
 };
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from 'react';
-import { Button, Box, Text, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Select, VStack, Grid, GridItem, Alert, AlertIcon, AlertDescription } from '@chakra-ui/react';
+import { Button, Box, Text, Select, VStack, Grid, GridItem, Alert, AlertIcon, AlertDescription, Input } from '@chakra-ui/react';
 function DistributionGenerator(_a) {
     var onDataChange = _a.onDataChange;
     var _b = useState(1000), sampleSize = _b[0], setSampleSize = _b[1];
@@ -172,28 +172,50 @@ function DistributionGenerator(_a) {
     var handleGenerate = function () {
         try {
             setErrorMessage('');
-            // Validate parameters
-            if (selectedDistribution === 'uniform' && params.a >= params.b) {
+            
+            // Prepare safe parameters with defaults if empty/null
+            var safeParams = {};
+            var config = distributionConfigs[selectedDistribution];
+            
+            // Set default values for any empty/null parameters
+            config.params.forEach(function (param) {
+                safeParams[param.name] = params[param.name] === null || params[param.name] === undefined || params[param.name] === '' 
+                    ? param.defaultValue 
+                    : params[param.name];
+            });
+            
+            // Special validation for uniform distribution
+            if (selectedDistribution === 'uniform' && safeParams.a >= safeParams.b) {
                 throw new Error('Minimum value must be less than maximum value for uniform distribution');
             }
+            
+            // Use safe sample size (minimum 1 if empty/0)
+            var safeSampleSize = sampleSize === 0 || sampleSize === '' || sampleSize === null || sampleSize === undefined ? 1 : sampleSize;
+            
             // Use setTimeout to simulate asynchronous operation without async/await
             setTimeout(function () {
                 try {
+                    // Temporarily use safe parameters for generation
+                    var tempParams = __assign({}, params);
+                    setParams(safeParams);
+                    setSampleSize(safeSampleSize);
+                    
                     var data = generateMockData();
-                    var config = distributionConfigs[selectedDistribution];
+                    
+                    // Restore original params state
+                    setParams(tempParams);
+                    
                     onDataChange(data, {
                         type: selectedDistribution,
                         name: config.name,
                         formula: config.formula,
-                        parameters: __assign({}, params),
+                        parameters: __assign({}, safeParams),
                     });
-                }
-                catch (error) {
+                } catch (error) {
                     setErrorMessage(error instanceof Error ? error.message : 'Error generating data');
                 }
             }, 300);
-        }
-        catch (error) {
+        } catch (error) {
             setErrorMessage(error instanceof Error ? error.message : 'Error generating data');
         }
     };
@@ -201,7 +223,7 @@ function DistributionGenerator(_a) {
     return (_jsx(Box, { p: 4, children: _jsxs(Grid, { templateColumns: "1fr 1fr", gap: 6, children: [_jsx(GridItem, { children: _jsxs(VStack, { align: "stretch", spacing: 4, children: [_jsxs(Box, { children: [_jsx(Text, { mb: 2, fontWeight: "bold", children: "Select Distribution Type" }), _jsx(Select, { value: selectedDistribution, onChange: function (e) { return setSelectedDistribution(e.target.value); }, children: Object.entries(distributionConfigs).map(function (_a) {
                                             var key = _a[0], config = _a[1];
                                             return (_jsx("option", { value: key, children: config.name }, key));
-                                        }) })] }), _jsxs(Box, { children: [_jsxs(Text, { mb: 2, fontWeight: "bold", children: ["Sample Size: ", sampleSize] }), _jsxs(Slider, { min: 10, max: 10000, step: 10, value: sampleSize, onChange: function (val) { return setSampleSize(val); }, children: [_jsx(SliderTrack, { children: _jsx(SliderFilledTrack, {}) }), _jsx(SliderThumb, {})] })] }), currentConfig.params.map(function (param) { return (_jsxs(Box, { children: [_jsxs(Text, { mb: 2, fontWeight: "bold", children: [param.label, ": ", params[param.name]] }), _jsxs(Slider, { min: param.min, max: param.max, step: param.step, value: params[param.name] || param.defaultValue, onChange: function (val) { return handleParamChange(param.name, val); }, children: [_jsx(SliderTrack, { children: _jsx(SliderFilledTrack, {}) }), _jsx(SliderThumb, {})] })] }, param.name)); }), _jsx(Button, { onClick: handleGenerate, colorScheme: "blue", variant: "solid", size: "lg", children: "Generate Data" }), errorMessage && (_jsxs(Alert, { status: "error", children: [_jsx(AlertIcon, {}), _jsx(AlertDescription, { children: errorMessage })] }))] }) }), _jsx(GridItem, { children: _jsxs(Box, { p: 4, bg: "gray.50", borderRadius: "md", height: "100%", children: [_jsx(Text, { fontWeight: "bold", fontSize: "lg", mb: 2, children: currentConfig.name }), currentConfig.formula && (_jsx(Box, { mb: 4, p: 2, bg: "white", borderRadius: "md", children: _jsx(Text, { fontFamily: "monospace", fontSize: "sm", children: currentConfig.formula }) })), _jsx(Text, { fontWeight: "bold", mb: 2, children: "Parameter Description:" }), currentConfig.params.map(function (param) { return (_jsxs(Text, { fontSize: "sm", mb: 1, children: [_jsxs("strong", { children: [param.label, ":"] }), " ", param.name === 'mean' ? 'Central location of the distribution' :
+                                        }) })] }), _jsxs(Box, { children: [_jsx(Text, { mb: 2, fontWeight: "bold", children: "Sample Size" }), _jsx(Input, { type: "number", value: sampleSize || '', onChange: function (e) { var val = e.target.value === '' ? '' : parseInt(e.target.value); if (val === '' || !isNaN(val)) { setSampleSize(val === '' ? 0 : val); } } })] }), currentConfig.params.map(function (param) { return (_jsxs(Box, { children: [_jsx(Text, { mb: 2, fontWeight: "bold", children: param.label }), _jsx(Input, { type: "number", value: params[param.name] || '', onChange: function (e) { var val = e.target.value === '' ? '' : parseFloat(e.target.value); if (val === '' || !isNaN(val)) { handleParamChange(param.name, val === '' ? null : val); } } })] }, param.name)); }), _jsx(Button, { onClick: handleGenerate, colorScheme: "blue", variant: "solid", size: "lg", children: "Generate Data" }), errorMessage && (_jsxs(Alert, { status: "error", children: [_jsx(AlertIcon, {}), _jsx(AlertDescription, { children: errorMessage })] }))] }) }), _jsx(GridItem, { children: _jsxs(Box, { p: 4, bg: "gray.50", borderRadius: "md", height: "100%", children: [_jsx(Text, { fontWeight: "bold", fontSize: "lg", mb: 2, children: currentConfig.name }), currentConfig.formula && (_jsx(Box, { mb: 4, p: 2, bg: "white", borderRadius: "md", children: _jsx(Text, { fontFamily: "monospace", fontSize: "sm", children: currentConfig.formula }) })), _jsx(Text, { fontWeight: "bold", mb: 2, children: "Parameter Description:" }), currentConfig.params.map(function (param) { return (_jsxs(Text, { fontSize: "sm", mb: 1, children: [_jsxs("strong", { children: [param.label, ":"] }), " ", param.name === 'mean' ? 'Central location of the distribution' :
                                         param.name === 'std' ? 'Degree of dispersion of the distribution' :
                                             param.name === 'a' ? 'Minimum value of the interval' :
                                                 param.name === 'b' ? 'Maximum value of the interval' :

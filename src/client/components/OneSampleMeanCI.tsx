@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Text, Grid, Card, CardBody, Select, FormControl, FormLabel, Switch, Input, Button, Alert, AlertIcon, AlertDescription } from '@chakra-ui/react';
-import { calculateConfidenceInterval, calculateMean } from '../utils/statistics';
+import { calculateOneSampleMeanCI, calculateMean, ConfidenceIntervalType } from '../utils/statistics';
 import { BasicStats } from '../types';
 
 interface OneSampleMeanCIProps {
@@ -20,7 +20,8 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
     confidenceLevel: 0.95,
     isNormal: false, // Default: not assuming normal distribution
     knownVariance: false, // Default: unknown variance
-    populationVariance: 0
+    populationVariance: 0,
+    intervalType: 'two-sided' as ConfidenceIntervalType
   });
   
   // Calculate sample variance (for auto-filling when dataset is generated)
@@ -73,24 +74,30 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
         throw new Error('Please select or generate a dataset above first');
       }
       
-      // Calculate mean, prefer using passed statistics
-      const mean = sampleMean;
-      
-      // Calculate confidence interval
-      const confidenceInterval = calculateConfidenceInterval(
+      // Calculate one-sample mean confidence interval
+      // Use knownVariance parameter only if it's set to true and has a valid positive value
+      // If populationVariance is 0 or invalid, use unknown variance method
+      const ciResult = calculateOneSampleMeanCI(
         dataset,
         ciOptions.confidenceLevel,
-        {
-          isNormal: ciOptions.isNormal,
-          knownVariance: ciOptions.knownVariance,
-          populationVariance: ciOptions.populationVariance
-        }
+        ciOptions.knownVariance && ciOptions.populationVariance > 0 ? ciOptions.populationVariance : undefined,
+        ciOptions.intervalType
       );
       
       setResult({
-        mean,
-          confidenceInterval
-        });
+        mean: ciResult.mean,
+        confidenceInterval: {
+          lower: ciResult.lowerBound,
+          upper: ciResult.upperBound,
+          marginOfError: ciResult.marginOfError,
+          method: ciResult.method,
+          criticalValue: ciResult.method.includes('z-test') ? 
+            (ciOptions.confidenceLevel === 0.90 ? 1.645 : 
+             ciOptions.confidenceLevel === 0.95 ? 1.96 : 
+             ciOptions.confidenceLevel === 0.99 ? 2.576 : 1.96) : 
+            0 // We don't have the t-critical value in this function
+        }
+      });
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred during calculation');
     }
@@ -166,6 +173,21 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
                     />
                   </FormControl>
                 )}
+                
+                <FormControl>
+                  <FormLabel>Confidence Interval Type</FormLabel>
+                  <Select
+                    value={ciOptions.intervalType}
+                    onChange={(e) => setCiOptions({ 
+                      ...ciOptions, 
+                      intervalType: e.target.value as ConfidenceIntervalType 
+                    })}
+                  >
+                    <option value="two-sided">Two-Sided</option>
+                    <option value="one-sided-lower">One-Sided Lower</option>
+                    <option value="one-sided-upper">One-Sided Upper</option>
+                  </Select>
+                </FormControl>
               </>
             )}
             
@@ -211,13 +233,25 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
           <Card>
             <CardBody>
               <Text fontSize="sm" color="gray.500">CI Lower Bound</Text>
-              <Text fontSize="2xl" fontWeight="bold">{result.confidenceInterval.lower.toFixed(4)}</Text>
+              <Text fontSize="2xl" fontWeight="bold">
+                {result.confidenceInterval.lower === -Infinity ? "-∞" : result.confidenceInterval.lower.toFixed(4)}
+              </Text>
             </CardBody>
           </Card>
           <Card>
             <CardBody>
               <Text fontSize="sm" color="gray.500">CI Upper Bound</Text>
-              <Text fontSize="2xl" fontWeight="bold">{result.confidenceInterval.upper.toFixed(4)}</Text>
+              <Text fontSize="2xl" fontWeight="bold">
+                {result.confidenceInterval.upper === Infinity ? "+∞" : result.confidenceInterval.upper.toFixed(4)}
+              </Text>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody>
+              <Text fontSize="sm" color="gray.500">Interval Type</Text>
+              <Text fontSize="2xl" fontWeight="bold">
+                {ciOptions.intervalType}
+              </Text>
             </CardBody>
           </Card>
           <Card>

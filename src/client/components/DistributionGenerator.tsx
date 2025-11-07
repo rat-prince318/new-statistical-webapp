@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Button, Box, Text, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Select, VStack, Grid, GridItem, Alert, AlertIcon, AlertDescription } from '@chakra-ui/react';
+import { Button, Box, Text, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Select, VStack, Grid, GridItem, Alert, AlertIcon, AlertDescription, Input } from '@chakra-ui/react';
 import { DistributionConfig, DistributionGeneratorProps } from '../types';
 
 function DistributionGenerator({ onDataChange }: DistributionGeneratorProps) {
@@ -224,36 +224,38 @@ function DistributionGenerator({ onDataChange }: DistributionGeneratorProps) {
             </Box>
             
             <Box>
-              <Text mb={2} fontWeight="bold">Sample Size: {sampleSize}</Text>
-              <Slider
+              <Text mb={2} fontWeight="bold">Sample Size</Text>
+              <Input
+                type="number"
                 min={10}
                 max={10000}
                 step={10}
                 value={sampleSize}
-                onChange={(val) => setSampleSize(val)}
-              >
-                <SliderTrack>
-                  <SliderFilledTrack />
-                </SliderTrack>
-                <SliderThumb />
-              </Slider>
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val) && val >= 10 && val <= 10000) {
+                    setSampleSize(val);
+                  }
+                }}
+              />
             </Box>
             
             {currentConfig.params.map((param) => (
               <Box key={param.name}>
-                <Text mb={2} fontWeight="bold">{param.label}: {params[param.name]}</Text>
-                <Slider
+                <Text mb={2} fontWeight="bold">{param.label}</Text>
+                <Input
+                  type="number"
                   min={param.min}
                   max={param.max}
                   step={param.step}
                   value={params[param.name] || param.defaultValue}
-                  onChange={(val) => handleParamChange(param.name, val)}
-                >
-                  <SliderTrack>
-                    <SliderFilledTrack />
-                  </SliderTrack>
-                  <SliderThumb />
-                </Slider>
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!isNaN(val) && val >= param.min && val <= param.max) {
+                      handleParamChange(param.name, val);
+                    }
+                  }}
+                />
               </Box>
             ))}
             

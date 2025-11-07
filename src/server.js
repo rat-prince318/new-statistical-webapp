@@ -9,7 +9,7 @@ const math = create(all);
 
 const app = express();
 // Hardcoding port directly without using environment variables
-const port = 3005;
+const port = 8888;
 
 // Middleware
 app.use(express.json());
@@ -591,19 +591,29 @@ function gamma(z) {
   return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
 }
 
-// Start the server using the specified port
-// Explicitly using port 3003 to avoid any potential environment variable overrides or caching issues
-const server = app.listen(3003, () => {
-  console.log(`
+// Start the server with auto port retry mechanism
+function startServer(serverPort) {
+  const server = app.listen(serverPort, () => {
+    console.log(`
 === Probability Distribution Webapp ===`);
-  console.log(`Server running at http://localhost:${port}`);
-  console.log(`API documentation: http://localhost:${port}/api`);
-  console.log(`\nAvailable probability distributions:`);
-  availableDistributions.forEach(dist => {
-    console.log(`- ${dist.displayName} (${dist.name})`);
+    console.log(`Server running at http://localhost:${serverPort}`);
+    console.log(`API documentation: http://localhost:${serverPort}/api`);
+    console.log(`\nAvailable probability distributions:`);
+    availableDistributions.forEach(dist => {
+      console.log(`- ${dist.displayName} (${dist.name})`);
+    });
+    console.log(`======================================`);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`Port ${serverPort} is in use, trying ${serverPort + 1}...`);
+      startServer(serverPort + 1);
+    } else {
+      console.error('Failed to start server:', err);
+    }
   });
-  console.log(`======================================`);
-});
+}
+
+startServer(port);
 
 // Export app for testing
 module.exports = app;

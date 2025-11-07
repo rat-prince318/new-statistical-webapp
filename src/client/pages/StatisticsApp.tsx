@@ -42,33 +42,39 @@ const StatisticsApp: React.FC = () => {
   // Dataset name input
   const [datasetName, setDatasetName] = useState<string>('');
   
-  // Currently selected dataset ID
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+  // Currently selected dataset IDs (multiple selection)
+  const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
   
   // Direct data input
   const [directDataInput, setDirectDataInput] = useState<string>('');
   
-  // Get currently selected dataset
-  const getSelectedDataset = (id: string | null): number[] => {
-    if (!id) return [];
+  // Get currently selected dataset by ID
+  const getSelectedDataset = (id: string): number[] => {
     const dataset = savedDatasets.find(d => d.id === id);
     return dataset ? dataset.data : [];
+  };
+  
+  // Get all selected datasets
+  const getAllSelectedDatasets = (): Dataset[] => {
+    return savedDatasets.filter(d => selectedDatasetIds.includes(d.id));
   };
 
   // Calculate basic statistics for the currently used dataset
   const currentDataset = useMemo(() => {
-    if (selectedDatasetId) {
-      const dataset = savedDatasets.find(d => d.id === selectedDatasetId);
+    // If multiple datasets are selected, use the first one for backward compatibility
+    if (selectedDatasetIds.length > 0) {
+      const dataset = savedDatasets.find(d => d.id === selectedDatasetIds[0]);
       return dataset ? dataset.data : [];
     }
     return dataset1;
-  }, [selectedDatasetId, dataset1, savedDatasets]);
+  }, [selectedDatasetIds, dataset1, savedDatasets]);
   
   // Calculate basic statistics
   const basicStats = useMemo(() => {
     let datasetToAnalyze: number[] = [];
-    if (selectedDatasetId) {
-      const dataset = savedDatasets.find(d => d.id === selectedDatasetId);
+    // If multiple datasets are selected, use the first one for backward compatibility
+    if (selectedDatasetIds.length > 0) {
+      const dataset = savedDatasets.find(d => d.id === selectedDatasetIds[0]);
       datasetToAnalyze = dataset ? dataset.data : [];
     } else {
       datasetToAnalyze = dataset1;
@@ -86,7 +92,7 @@ const StatisticsApp: React.FC = () => {
       min: Math.min(...datasetToAnalyze),
       max: Math.max(...datasetToAnalyze)
     };
-  }, [selectedDatasetId, savedDatasets, dataset1]);
+  }, [selectedDatasetIds, savedDatasets, dataset1]);
 
   
   // Determine if data might come from normal distribution (simple heuristic based on skewness and kurtosis)
@@ -196,24 +202,35 @@ const StatisticsApp: React.FC = () => {
   // Delete dataset
   const deleteDataset = (id: string) => {
     setSavedDatasets(savedDatasets.filter(dataset => dataset.id !== id));
-    // If deleting currently selected dataset, clear selection
-    if (selectedDatasetId === id) setSelectedDatasetId(null);
+    // If deleting currently selected dataset, remove from selection
+    setSelectedDatasetIds(selectedDatasetIds.filter(selectedId => selectedId !== id));
   };
   
-  // Select historical dataset
-  const handleHistoryDatasetSelect = (id: string) => {
-    const dataset = savedDatasets.find(d => d.id === id);
-    if (dataset) {
-      setDataset1(dataset.data);
-      setDirectDataInput(dataset.data.join(', '));
-      setSelectedDatasetId(id);
-      setDataset2([]);
-      setPairedData({ sample1: [], sample2: [] });
-      setIsDatasetGenerated(false); // Historical datasets default to user data
-      setDataset1Distribution(null); // Clear distribution information
-      setDataUpdated(true);
-      setTimeout(() => setDataUpdated(false), 3000);
-    }
+  // Toggle dataset selection (supports multiple selection)
+  const toggleDatasetSelection = (id: string) => {
+    setSelectedDatasetIds(prevSelected => {
+      if (prevSelected.includes(id)) {
+        // Remove from selection
+        return prevSelected.filter(selectedId => selectedId !== id);
+      } else {
+        // Add to selection
+        const newSelection = [...prevSelected, id];
+        // For backward compatibility with components expecting a single dataset,
+        // update dataset1 with the most recently selected dataset
+        const dataset = savedDatasets.find(d => d.id === id);
+        if (dataset) {
+          setDataset1(dataset.data);
+          setDirectDataInput(dataset.data.join(', '));
+          setDataset2([]);
+          setPairedData({ sample1: [], sample2: [] });
+          setIsDatasetGenerated(false);
+          setDataset1Distribution(null);
+          setDataUpdated(true);
+          setTimeout(() => setDataUpdated(false), 3000);
+        }
+        return newSelection;
+      }
+    });
   };
 
   return (
@@ -384,8 +401,8 @@ const StatisticsApp: React.FC = () => {
                         >
                           <div style={{ display: 'flex', alignItems: 'center' }}>
                             <Checkbox
-                              isChecked={selectedDatasetId === dataset.id}
-                              onChange={() => handleHistoryDatasetSelect(dataset.id)}
+                              isChecked={selectedDatasetIds.includes(dataset.id)}
+                              onChange={() => toggleDatasetSelection(dataset.id)}
                               mr={2}
                             />
                             <div>
@@ -473,10 +490,10 @@ const StatisticsApp: React.FC = () => {
                 >
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     <Checkbox
-                      isChecked={selectedDatasetId === dataset.id}
-                      onChange={() => handleHistoryDatasetSelect(dataset.id)}
-                      mr={2}
-                    />
+                              isChecked={selectedDatasetIds.includes(dataset.id)}
+                              onChange={() => toggleDatasetSelection(dataset.id)}
+                              mr={2}
+                            />
                     <div>
                       <Text fontSize="sm" fontWeight="medium">{dataset.name}</Text>
                       <Text fontSize="xs" color="gray.500">{dataset.data.length} observations · {new Date(dataset.timestamp).toLocaleString()}</Text>
@@ -495,12 +512,26 @@ const StatisticsApp: React.FC = () => {
           </Box>
         )}
         
-        {/* Currently Selected Dataset Information */}
-        {selectedDatasetId && (
+        {/* Currently Selected Datasets Information */}
+        {selectedDatasetIds.length > 0 && (
           <Box mt={3} p={3} borderWidth={1} borderColor="green.200" borderRadius="lg" bg="green.50">
-            <Text fontSize="sm" fontWeight="medium">Currently selected dataset:</Text>
-            <Text fontSize="sm">{savedDatasets.find(d => d.id === selectedDatasetId)?.name}</Text>
-            <Text fontSize="sm">Number of data points: {getSelectedDataset(selectedDatasetId).length}</Text>
+            <Text fontSize="sm" fontWeight="medium">Currently selected datasets:</Text>
+            {selectedDatasetIds.map(id => {
+              const dataset = savedDatasets.find(d => d.id === id);
+              return dataset ? (
+                <Text key={id} fontSize="sm">
+                  {dataset.name} ({dataset.data.length} data points)
+                </Text>
+              ) : null;
+            })}
+            <Button 
+              size="sm" 
+              colorScheme="blue" 
+              mt={2}
+              onClick={() => setSelectedDatasetIds([])}
+            >
+              Clear Selection
+            </Button>
           </Box>
         )}
         
@@ -527,8 +558,13 @@ const StatisticsApp: React.FC = () => {
         {(currentDataset.length > 0) && (
           <Box mb={4} p={3} borderWidth={1} borderColor="green.200" borderRadius="lg" bg="green.50">
             <Text fontSize="sm" fontWeight="medium">Currently using dataset:</Text>
-            {selectedDatasetId ? (
-              <Text fontSize="sm">Name: {savedDatasets.find(d => d.id === selectedDatasetId)?.name}</Text>
+            {selectedDatasetIds.length > 0 ? (
+              selectedDatasetIds.map(id => {
+                const dataset = savedDatasets.find(d => d.id === id);
+                return dataset ? (
+                  <Text key={id} fontSize="sm">Name: {dataset.name}</Text>
+                ) : null;
+              })
             ) : null}
             
             {basicStats && (
@@ -574,25 +610,25 @@ const StatisticsApp: React.FC = () => {
           <TabPanels>
             <TabPanel>
               <BasicStatisticsTab 
-                dataset={selectedDatasetId ? getSelectedDataset(selectedDatasetId) : dataset1}
+                dataset={selectedDatasetIds.length > 0 ? getSelectedDataset(selectedDatasetIds[0]) : dataset1}
                 basicStats={basicStats}
               />
             </TabPanel>
             <TabPanel>
               <ConfidenceIntervalsContainer 
-              dataset={currentDataset}
-              dataset2={dataset2}
-              pairedData={pairedData ? {before: pairedData.sample1, after: pairedData.sample2} : undefined}
-              isGeneratedDataset={!selectedDatasetId && isDatasetGenerated}
-              distributionInfo={!selectedDatasetId && dataset1Distribution || undefined}
-              basicStats={basicStats}
-            />
-          </TabPanel>
+                dataset={currentDataset}
+                dataset2={dataset2}
+                pairedData={pairedData ? {before: pairedData.sample1, after: pairedData.sample2} : undefined}
+                isGeneratedDataset={selectedDatasetIds.length === 0 && isDatasetGenerated}
+                distributionInfo={selectedDatasetIds.length === 0 && isDatasetGenerated && dataset1Distribution ? dataset1Distribution : undefined}
+                basicStats={basicStats}
+              />
+            </TabPanel>
             <TabPanel>
               <MLEMoMTab 
                 dataset={currentDataset}
-                distribution={!selectedDatasetId ? dataset1Distribution : null}
-                isGeneratedDataset={!selectedDatasetId}
+                distribution={selectedDatasetIds.length === 0 ? dataset1Distribution : null}
+                isGeneratedDataset={selectedDatasetIds.length === 0}
                 basicStats={basicStats}
               />
             </TabPanel>
@@ -601,7 +637,7 @@ const StatisticsApp: React.FC = () => {
                 dataset={currentDataset}
                 dataset2={dataset2}
                 pairedData={pairedData && pairedData.sample1.length > 0 && pairedData.sample2.length > 0 ? {before: pairedData.sample1, after: pairedData.sample2} : undefined}
-                isGeneratedDataset={!selectedDatasetId}
+                isGeneratedDataset={selectedDatasetIds.length === 0}
                 distributionInfo={dataset1Distribution}
                 basicStats={basicStats}
               />

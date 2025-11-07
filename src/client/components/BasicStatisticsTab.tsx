@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Box, Text, Grid, GridItem, Card, CardBody, Select, FormControl, FormLabel, Switch, NumberInput } from '@chakra-ui/react';
+import { Box, Text, Grid, GridItem, Card, CardBody, Select, FormControl, FormLabel, Switch, NumberInput, NumberInputField, NumberInputStepper, NumberIncrementStepper, NumberDecrementStepper } from '@chakra-ui/react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { BasicStatisticsTabProps, BasicStats } from '../types';
-import { generateHistogramData, calculateConfidenceInterval, calculateMean, calculateMedian, calculateMode, calculateVariance, calculateStd, calculateQuartiles } from '../utils/statistics';
+import { generateHistogramData, calculateOneSampleMeanCI, calculateMean, calculateMedian, calculateMode, calculateVariance, calculateStd, calculateQuartiles } from '../utils/statistics';
 
 function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStatisticsTabProps & { basicStats?: BasicStats | null }) {
   const [stats, setStats] = useState<{
@@ -22,7 +22,7 @@ function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStati
       upper: number; 
       marginOfError: number;
       method: string;
-      criticalValue: number;
+      criticalValue: number | undefined;
     };
   } | null>(null);
   
@@ -53,11 +53,20 @@ function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStati
       const { q1, q3, iqr } = calculateQuartiles(data);
       
       // Calculate confidence interval
-      const confidenceInterval = calculateConfidenceInterval(data, ciOptions.confidenceLevel, {
-        isNormal: ciOptions.isNormal,
-        knownVariance: ciOptions.knownVariance,
-        populationVariance: ciOptions.populationVariance
-      });
+      // Use knownVariance parameter only if it's set to true and has a valid positive value
+      const ciResult = calculateOneSampleMeanCI(
+        data,
+        ciOptions.confidenceLevel,
+        ciOptions.knownVariance && ciOptions.populationVariance > 0 ? ciOptions.populationVariance : undefined
+      );
+      
+      const confidenceInterval = {
+        lower: ciResult.lowerBound,
+        upper: ciResult.upperBound,
+        marginOfError: ciResult.marginOfError,
+        method: ciResult.method,
+        criticalValue: ciResult.criticalValue
+      };
       
       // Calculate minimum, maximum, and range
       const min = sortedData[0];
@@ -65,11 +74,15 @@ function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStati
       const range = max - min;
       
       setStats({
-        mean: propsBasicStats.mean || 0,
-        median: propsBasicStats.median || 0,
-        mode: propsBasicStats.mode ? (Array.isArray(propsBasicStats.mode) ? propsBasicStats.mode : [propsBasicStats.mode]) : [],
-        variance: propsBasicStats.variance || (propsBasicStats.std ? propsBasicStats.std * propsBasicStats.std : 0),
-        std: propsBasicStats.std || 0,
+        mean: typeof propsBasicStats.mean === 'number' ? propsBasicStats.mean : 0,
+        median: typeof propsBasicStats.median === 'number' ? propsBasicStats.median : 0,
+        mode: Array.isArray(propsBasicStats.mode) ? 
+          propsBasicStats.mode.filter(m => typeof m === 'number') : 
+          (typeof propsBasicStats.mode === 'number' ? [propsBasicStats.mode] : []),
+        variance: typeof propsBasicStats.variance === 'number' ? 
+          propsBasicStats.variance : 
+          (typeof propsBasicStats.std === 'number' ? propsBasicStats.std * propsBasicStats.std : 0),
+        std: typeof propsBasicStats.std === 'number' ? propsBasicStats.std : 0,
         min,
         max,
         range,
@@ -91,11 +104,20 @@ function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStati
       const { q1, q3, iqr } = calculateQuartiles(data);
       
       // Calculate confidence interval
-      const confidenceInterval = calculateConfidenceInterval(data, ciOptions.confidenceLevel, {
-        isNormal: ciOptions.isNormal,
-        knownVariance: ciOptions.knownVariance,
-        populationVariance: ciOptions.populationVariance
-      });
+      // Use knownVariance parameter only if it's set to true and has a valid positive value
+      const ciResult = calculateOneSampleMeanCI(
+        data,
+        ciOptions.confidenceLevel,
+        ciOptions.knownVariance && ciOptions.populationVariance > 0 ? ciOptions.populationVariance : undefined
+      );
+      
+      const confidenceInterval = {
+        lower: ciResult.lowerBound,
+        upper: ciResult.upperBound,
+        marginOfError: ciResult.marginOfError,
+        method: ciResult.method,
+        criticalValue: ciResult.criticalValue
+      };
       
       // Calculate minimum, maximum, and range
       const min = sortedData[0];
@@ -105,7 +127,9 @@ function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStati
       setStats({
         mean,
         median,
-        mode,
+        mode: Array.isArray(mode) ? 
+          mode.filter(m => typeof m === 'number') : 
+          (typeof mode === 'number' ? [mode] : []),
         variance,
         std,
         min,
@@ -194,7 +218,13 @@ function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStati
                 step={0.0001}
                 value={ciOptions.populationVariance}
                 onChange={(value) => handleCIOptionChange('populationVariance', parseFloat(value || '0'))}
-              />
+              >
+                <NumberInputField />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
             </FormControl>
           )}
         </Grid>
@@ -204,79 +234,79 @@ function BasicStatisticsTab({ dataset, basicStats: propsBasicStats }: BasicStati
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Mean</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.mean !== undefined ? stats.mean.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{typeof stats.mean === 'number' ? stats.mean.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Median</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.median !== undefined ? stats.median.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{typeof stats.median === 'number' ? stats.median.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Mode</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.mode && stats.mode.length > 0 ? stats.mode.map(m => typeof m === 'number' ? m.toFixed(4) : m).join(', ') : 'No mode'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{stats.mode && stats.mode.length > 0 ? stats.mode.filter(m => typeof m === 'number').map(m => m.toFixed(4)).join(', ') : 'No mode'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Standard Deviation</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.std !== undefined ? stats.std.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{typeof stats.std === 'number' ? stats.std.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Minimum</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.min !== undefined ? stats.min.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{typeof stats.min === 'number' ? stats.min.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Maximum</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.max !== undefined ? stats.max.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{typeof stats.max === 'number' ? stats.max.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Interquartile Range</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.iqr !== undefined ? stats.iqr.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{typeof stats.iqr === 'number' ? stats.iqr.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Sample Size</Text>
-            <Text fontSize="2xl" fontWeight="bold">{dataset && dataset.length !== undefined ? dataset.length : 0}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{dataset ? dataset.length : 0}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">{Math.round(ciOptions.confidenceLevel * 100)}% CI Lower Bound</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval?.lower !== undefined ? stats.confidenceInterval.lower.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval && typeof stats.confidenceInterval.lower === 'number' ? stats.confidenceInterval.lower.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">{Math.round(ciOptions.confidenceLevel * 100)}% CI Upper Bound</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval?.upper !== undefined ? stats.confidenceInterval.upper.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval && typeof stats.confidenceInterval.upper === 'number' ? stats.confidenceInterval.upper.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Margin of Error</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval?.marginOfError !== undefined ? stats.confidenceInterval.marginOfError.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval && typeof stats.confidenceInterval.marginOfError === 'number' ? stats.confidenceInterval.marginOfError.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Calculation Method</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval?.method || 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval ? (stats.confidenceInterval.method || 'N/A') : 'N/A'}</Text>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <Text fontSize="sm" color="gray.500">Critical Value</Text>
-            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval?.criticalValue !== undefined ? stats.confidenceInterval.criticalValue.toFixed(4) : 'N/A'}</Text>
+            <Text fontSize="2xl" fontWeight="bold">{stats.confidenceInterval && typeof stats.confidenceInterval.criticalValue === 'number' ? stats.confidenceInterval.criticalValue.toFixed(4) : 'N/A'}</Text>
           </CardBody>
         </Card>
       </Grid>

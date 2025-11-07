@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Box, Text, Slider, SliderTrack, SliderFilledTrack, SliderThumb, VStack, Alert, AlertIcon, AlertDescription, Textarea } from '@chakra-ui/react';
+import { Button, Box, Text, Slider, SliderTrack, SliderFilledTrack, SliderThumb, VStack, Alert, AlertIcon, AlertDescription, Textarea, Input } from '@chakra-ui/react';
 import { AIDataGeneratorProps } from '../types';
 
 function AIDataGenerator({ onDataChange }: AIDataGeneratorProps) {
@@ -113,19 +113,20 @@ function AIDataGenerator({ onDataChange }: AIDataGeneratorProps) {
         </Box>
         
         <Box>
-          <Text mb={2} fontWeight="bold">Sample Size: {sampleSize}</Text>
-          <Slider
+          <Text mb={2} fontWeight="bold">Sample Size</Text>
+          <Input
+            type="number"
             min={10}
             max={10000}
             step={10}
             value={sampleSize}
-            onChange={(val) => setSampleSize(val)}
-          >
-            <SliderTrack>
-              <SliderFilledTrack />
-            </SliderTrack>
-            <SliderThumb />
-          </Slider>
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              if (!isNaN(val) && val >= 10 && val <= 10000) {
+                setSampleSize(val);
+              }
+            }}
+          />
         </Box>
         
         <Button
