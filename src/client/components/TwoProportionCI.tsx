@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Box, Text, Input, Button, VStack, HStack, Card, CardBody, Table, Tr, Th, Td, Alert, Select, RadioGroup, Radio, Stack } from '@chakra-ui/react';
-import { calculateTwoProportionConfidenceInterval } from '../utils/statistics';
+import { calculateTwoProportionConfidenceInterval, ConfidenceIntervalType } from '../utils/statistics';
 
 function TwoProportionCI() {
   const [successes1, setSuccesses1] = useState<string>('');
@@ -9,6 +9,7 @@ function TwoProportionCI() {
   const [trials2, setTrials2] = useState<string>('');
   const [confidenceLevel, setConfidenceLevel] = useState<number>(0.95);
   const [method, setMethod] = useState<'wald' | 'continuity'>('wald');
+  const [intervalType, setIntervalType] = useState<ConfidenceIntervalType>('two-sided');
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string>('');
 
@@ -41,7 +42,7 @@ function TwoProportionCI() {
         s2,
         t2,
         confidence,
-        { method }
+        { method, intervalType }
       );
 
       setResult(ciResult);
@@ -136,6 +137,20 @@ function TwoProportionCI() {
               </Select>
             </Box>
             <Box flex={1}>
+              <Text fontWeight="medium" mb={2}>Confidence Interval Type</Text>
+              <Select
+                value={intervalType}
+                onChange={(e) => setIntervalType(e.target.value as ConfidenceIntervalType)}
+                size="lg"
+              >
+                <option value="two-sided">Two-Sided</option>
+                <option value="one-sided-lower">One-Sided Lower</option>
+                <option value="one-sided-upper">One-Sided Upper</option>
+              </Select>
+            </Box>
+          </HStack>
+          <HStack spacing={4} mt={4}>
+            <Box flex={1}>
               <Text fontWeight="medium" mb={2}>Calculation Method</Text>
               <RadioGroup value={method} onChange={(v) => setMethod(v as 'wald' | 'continuity')}>
                 <Stack direction="row">
@@ -187,7 +202,14 @@ function TwoProportionCI() {
                 </Tr>
                 <Tr>
                   <Th>Confidence Interval</Th>
-                  <Td>[{(result.lower * 100).toFixed(2)}%, {(result.upper * 100).toFixed(2)}%]</Td>
+                  <Td>
+                    {result.intervalType === 'one-sided-lower'
+                      ? `[${(result.lower * 100).toFixed(2)}%, +∞)`
+                      : result.intervalType === 'one-sided-upper'
+                        ? `(-∞, ${(result.upper * 100).toFixed(2)}%]`
+                        : `[${(result.lower * 100).toFixed(2)}%, ${(result.upper * 100).toFixed(2)}%]`
+                    }
+                  </Td>
                 </Tr>
               </tbody>
             </Table>
@@ -195,10 +217,15 @@ function TwoProportionCI() {
             <Box mt={4} p={3} bg="blue.50" borderRadius="lg">
               <Text fontWeight="medium">Result Interpretation</Text>
               <Text mt={1} fontSize="sm">
-                We are {confidenceLevel * 100}% confident that the difference between the two population proportions lies between [{(result.lower * 100).toFixed(2)}%, {(result.upper * 100).toFixed(2)}%].
+                {result.intervalType === 'one-sided-lower'
+                  ? `We are ${confidenceLevel * 100}% confident that the difference between the two population proportions is at least ${(result.lower * 100).toFixed(2)}%.`
+                  : result.intervalType === 'one-sided-upper'
+                    ? `We are ${confidenceLevel * 100}% confident that the difference between the two population proportions is at most ${(result.upper * 100).toFixed(2)}%.`
+                    : `We are ${confidenceLevel * 100}% confident that the difference between the two population proportions lies between [${(result.lower * 100).toFixed(2)}%, ${(result.upper * 100).toFixed(2)}%].`
+                }
                 {result.lower > 0 && " This indicates that the proportion in the first population is significantly higher than in the second population."}
                 {result.upper < 0 && " This indicates that the proportion in the first population is significantly lower than in the second population."}
-                {result.lower <= 0 && result.upper >= 0 && " The two population proportions may not be significantly different."}
+                {result.intervalType === 'two-sided' && result.lower <= 0 && result.upper >= 0 && " The two population proportions may not be significantly different."}
               </Text>
             </Box>
           </Box>

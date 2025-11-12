@@ -66,6 +66,7 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
       method: string;
       criticalValue: number;
     };
+    intervalType: ConfidenceIntervalType;
   } | null>(null);
 
   const handleCalculate = () => {
@@ -74,13 +75,19 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
         throw new Error('Please select or generate a dataset above first');
       }
       
+      // 验证已知方差的有效性
+      if (ciOptions.knownVariance) {
+        if (ciOptions.populationVariance <= 0) {
+          throw new Error('Population variance must be greater than 0');
+        }
+      }
+      
       // Calculate one-sample mean confidence interval
-      // Use knownVariance parameter only if it's set to true and has a valid positive value
-      // If populationVariance is 0 or invalid, use unknown variance method
+      // 当选择了已知方差时，直接使用populationVariance参数
       const ciResult = calculateOneSampleMeanCI(
         dataset,
         ciOptions.confidenceLevel,
-        ciOptions.knownVariance && ciOptions.populationVariance > 0 ? ciOptions.populationVariance : undefined,
+        ciOptions.knownVariance ? ciOptions.populationVariance : undefined,
         ciOptions.intervalType
       );
       
@@ -91,12 +98,9 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
           upper: ciResult.upperBound,
           marginOfError: ciResult.marginOfError,
           method: ciResult.method,
-          criticalValue: ciResult.method.includes('z-test') ? 
-            (ciOptions.confidenceLevel === 0.90 ? 1.645 : 
-             ciOptions.confidenceLevel === 0.95 ? 1.96 : 
-             ciOptions.confidenceLevel === 0.99 ? 2.576 : 1.96) : 
-            0 // We don't have the t-critical value in this function
-        }
+          criticalValue: ciResult.criticalValue || 0
+        },
+        intervalType: ciOptions.intervalType
       });
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred during calculation');
@@ -142,6 +146,22 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
               </Select>
             </FormControl>
             
+            {/* Always show confidence interval type selection */}
+            <FormControl>
+              <FormLabel>Confidence Interval Type</FormLabel>
+              <Select
+                value={ciOptions.intervalType}
+                onChange={(e) => setCiOptions({ 
+                  ...ciOptions, 
+                  intervalType: e.target.value as ConfidenceIntervalType 
+                })}
+              >
+                <option value="two-sided">Two-Sided</option>
+                <option value="one-sided-lower">One-Sided Lower</option>
+                <option value="one-sided-upper">One-Sided Upper</option>
+              </Select>
+            </FormControl>
+            
             {/* Only show manual settings when not using generated dataset */}
             {!isGeneratedDataset && (
               <>
@@ -173,21 +193,6 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
                     />
                   </FormControl>
                 )}
-                
-                <FormControl>
-                  <FormLabel>Confidence Interval Type</FormLabel>
-                  <Select
-                    value={ciOptions.intervalType}
-                    onChange={(e) => setCiOptions({ 
-                      ...ciOptions, 
-                      intervalType: e.target.value as ConfidenceIntervalType 
-                    })}
-                  >
-                    <option value="two-sided">Two-Sided</option>
-                    <option value="one-sided-lower">One-Sided Lower</option>
-                    <option value="one-sided-upper">One-Sided Upper</option>
-                  </Select>
-                </FormControl>
               </>
             )}
             
@@ -250,7 +255,7 @@ function OneSampleMeanCI({ dataset = [], isGeneratedDataset = false, distributio
             <CardBody>
               <Text fontSize="sm" color="gray.500">Interval Type</Text>
               <Text fontSize="2xl" fontWeight="bold">
-                {ciOptions.intervalType}
+                {result.intervalType}
               </Text>
             </CardBody>
           </Card>

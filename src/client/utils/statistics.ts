@@ -308,6 +308,7 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
   isNormal?: boolean;
   knownVariance?: boolean;
   populationVariance?: number;
+  intervalType?: ConfidenceIntervalType;
 } = {}): { 
   lower: number; 
   upper: number; 
@@ -320,6 +321,7 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
   }
   
   const { isNormal = false, knownVariance = false, populationVariance } = options;
+  const intervalType = options.intervalType || 'two-sided';
   const n = data.length;
   const mean = calculateMean(data);
   
@@ -341,9 +343,15 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
   let criticalValue: number;
   let method: string;
   
+  // 根据区间类型调整置信水平（对于单边检验）
+  let adjustedConfidenceLevel = confidenceLevel;
+  if (intervalType !== 'two-sided') {
+    adjustedConfidenceLevel = 2 * confidenceLevel - 1;
+  }
+  
   if (knownVariance && populationVariance !== undefined && populationVariance > 0) {
     // Known variance and valid population variance, use z-distribution
-    switch (confidenceLevel) {
+    switch (adjustedConfidenceLevel) {
       case 0.90:
         criticalValue = 1.645;
         break;
@@ -355,7 +363,7 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
         break;
       default:
         // For other confidence levels, use approximation
-        const alpha = 1 - confidenceLevel;
+        const alpha = 1 - adjustedConfidenceLevel;
         const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - alpha/2) - 1);
         criticalValue = Math.abs(zApprox);
     }
@@ -366,11 +374,11 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
     if (isNormal || n <= 30) {
       // Normal distribution or small sample, use t-distribution
       const df = n - 1;
-      criticalValue = getApproximateTCriticalValue(df, confidenceLevel);
+      criticalValue = getApproximateTCriticalValue(df, adjustedConfidenceLevel);
       method = 't distribution (normal, unknown variance)';
     } else {
       // Non-normal large sample, use z-distribution approximation
-      switch (confidenceLevel) {
+      switch (adjustedConfidenceLevel) {
         case 0.90:
           criticalValue = 1.645;
           break;
@@ -381,7 +389,7 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
           criticalValue = 2.576;
           break;
         default:
-          const alpha = 1 - confidenceLevel;
+          const alpha = 1 - adjustedConfidenceLevel;
           const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - alpha/2) - 1);
           criticalValue = Math.abs(zApprox);
       }
@@ -392,9 +400,22 @@ export const calculateConfidenceInterval = (data: number[], confidenceLevel: num
   // Calculate margin of error
   const marginOfError = criticalValue * standardError;
   
-  // Calculate confidence interval
-  const lower = mean - marginOfError;
-  const upper = mean + marginOfError;
+  // Calculate confidence interval based on interval type
+  let lower: number;
+  let upper: number;
+  
+  if (intervalType === 'two-sided') {
+    lower = mean - marginOfError;
+    upper = mean + marginOfError;
+  } else if (intervalType === 'one-sided-lower') {
+    // One-sided lower: only upper bound matters, lower is -infinity
+    lower = -Infinity;
+    upper = mean + marginOfError;
+  } else { // one-sided-upper
+    // One-sided upper: only lower bound matters, upper is +infinity
+    lower = mean - marginOfError;
+    upper = Infinity;
+  }
   
   return { lower, upper, marginOfError, method, criticalValue };
 };
@@ -465,14 +486,31 @@ export function getTCriticalValue(confidenceLevel: number, degreesOfFreedom: num
 
 // Calculate z-distribution critical value (general function)
 export function getZCriticalValue(confidenceLevel: number): number {
-  // Common z-critical values for confidence levels (two-tailed test)
-  const zTable: Record<number, number> = {
-    0.90: 1.645,
-    0.95: 1.96,
-    0.99: 2.576
-  };
+  // 处理浮点数精度问题，使用近似比较
+  // 首先验证置信水平在有效范围内
+  if (confidenceLevel <= 0 || confidenceLevel >= 1) {
+    throw new Error('置信水平必须在(0, 1)范围内');
+  }
   
-  return zTable[confidenceLevel] || 1.96; // Default 95%
+  // Common z-critical values for confidence levels (two-tailed test)
+  const zTable = [
+    { level: 0.90, value: 1.645 },
+    { level: 0.95, value: 1.96 },
+    { level: 0.99, value: 2.576 }
+  ];
+  
+  // 寻找最接近的置信水平（考虑浮点数精度）
+  const epsilon = 1e-10;
+  for (const item of zTable) {
+    if (Math.abs(confidenceLevel - item.level) < epsilon) {
+      return item.value;
+    }
+  }
+  
+  // 对于非标准置信水平，使用误差函数计算
+  const alpha = 1 - confidenceLevel;
+  const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - alpha/2) - 1);
+  return Math.abs(zApprox);
 }
 
 // Calculate sample standard deviation (using sample variance, n-1 degrees of freedom)
@@ -539,11 +577,13 @@ export function calculateOneSampleMeanCI(
     standardError = Math.sqrt(knownVariance) / Math.sqrt(n);
     
     // 根据置信区间类型计算临界值
+    // 对于单边检验，我们需要使用不同的置信水平
     if (intervalType === 'two-sided') {
       criticalValue = getZCriticalValue(confidenceLevel);
     } else {
-      // 单边检验使用1 - α的置信水平
-      criticalValue = getZCriticalValue(confidenceLevel * 2 - 1);
+      // 对于单边检验，我们需要使用2*confidenceLevel - 1作为参数
+      // 因为getZCriticalValue函数内部是基于双侧检验的逻辑
+      criticalValue = getZCriticalValue(2 * confidenceLevel - 1);
     }
     
     marginOfError = criticalValue * standardError;
@@ -572,8 +612,8 @@ export function calculateOneSampleMeanCI(
     if (intervalType === 'two-sided') {
       criticalValue = getTCriticalValue(confidenceLevel, degreesOfFreedom);
     } else {
-      // 单边检验使用1 - α的置信水平
-      criticalValue = getTCriticalValue(confidenceLevel * 2 - 1, degreesOfFreedom);
+      // 对于单边检验，使用2*confidenceLevel - 1作为参数
+      criticalValue = getTCriticalValue(2 * confidenceLevel - 1, degreesOfFreedom);
     }
     
     marginOfError = criticalValue * standardError;
@@ -726,6 +766,7 @@ const inverseErrorFunction = (x: number): number => {
 export const calculateDescriptiveStats = (data: number[], confidenceLevel: number = 0.95, options?: {
   isNormal?: boolean;
   knownVariance?: boolean;
+  intervalType?: ConfidenceIntervalType;
 }): {
   mean: number;
   median: number;
@@ -756,12 +797,25 @@ export const calculateDescriptiveStats = (data: number[], confidenceLevel: numbe
   const sortedData = [...data].sort((a, b) => a - b);
   const n = sortedData.length;
   
+  const variance = calculateVariance(data);
+  const std = calculateStd(data);
+  
+  // 确保当knownVariance为true时，也传递populationVariance参数
+  const confidenceIntervalOptions = {
+    ...options,
+    isNormal: options?.isNormal || false,
+    knownVariance: options?.knownVariance || false,
+    intervalType: options?.intervalType || 'two-sided',
+    // 当已知方差时，使用样本方差作为总体方差的估计
+    populationVariance: options?.knownVariance ? variance : undefined
+  };
+  
   return {
     mean: calculateMean(data),
     median: calculateMedian(data),
     mode: calculateMode(data),
-    variance: calculateVariance(data),
-    std: calculateStd(data),
+    variance,
+    std,
     skewness: calculateSkewness(data),
     kurtosis: calculateKurtosis(data),
     min: sortedData[0],
@@ -769,7 +823,7 @@ export const calculateDescriptiveStats = (data: number[], confidenceLevel: numbe
     range: sortedData[n - 1] - sortedData[0],
     ...calculateQuartiles(data),
     count: n,
-    confidenceInterval: calculateConfidenceInterval(data, confidenceLevel, options || { isNormal: false, knownVariance: false }),
+    confidenceInterval: calculateConfidenceInterval(data, confidenceLevel, confidenceIntervalOptions),
   };
 };
 
@@ -788,6 +842,7 @@ export const calculateDescriptiveStats = (data: number[], confidenceLevel: numbe
  */
 export const calculateProportionConfidenceInterval = (successes: number, trials: number, confidenceLevel: number = 0.95, options: {
   method?: 'wald' | 'wilson';
+  intervalType?: ConfidenceIntervalType;
 } = {}): {
   lower: number;
   upper: number;
@@ -795,6 +850,7 @@ export const calculateProportionConfidenceInterval = (successes: number, trials:
   method: string;
   criticalValue: number;
   proportion: number;
+  intervalType: ConfidenceIntervalType;
 } => {
   if (trials <= 0) {
     throw new Error('Total number of trials must be greater than 0');
@@ -806,25 +862,27 @@ export const calculateProportionConfidenceInterval = (successes: number, trials:
     throw new Error('Confidence level must be between 0 and 1');
   }
   
-  const { method = 'wald' } = options;
+  const { method = 'wald', intervalType = 'two-sided' } = options;
   const proportion = successes / trials;
   
-  // Calculate critical value (z-value)
+  // Calculate critical value (z-value) based on interval type
   let criticalValue: number;
+  const alpha = 1 - confidenceLevel;
+  const tailFactor = intervalType === 'two-sided' ? alpha / 2 : alpha;
+  
   switch (confidenceLevel) {
     case 0.90:
-      criticalValue = 1.645;
+      criticalValue = intervalType === 'two-sided' ? 1.645 : 1.282;
       break;
     case 0.95:
-      criticalValue = 1.96;
+      criticalValue = intervalType === 'two-sided' ? 1.96 : 1.645;
       break;
     case 0.99:
-      criticalValue = 2.576;
+      criticalValue = intervalType === 'two-sided' ? 2.576 : 2.326;
       break;
     default:
       // For other confidence levels, use inverse error function to approximate z-value
-      const alpha = 1 - confidenceLevel;
-      const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - alpha/2) - 1);
+      const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - tailFactor) - 1);
       criticalValue = Math.abs(zApprox);
   }
   
@@ -842,23 +900,48 @@ export const calculateProportionConfidenceInterval = (successes: number, trials:
     const denominator = n + zSquared;
     const numerator = z * Math.sqrt((proportion * (1 - proportion) * n + zSquared / 4) / n);
     
-    lower = pTilde - numerator / denominator;
-    upper = pTilde + numerator / denominator;
+    if (intervalType === 'one-sided-lower') {
+      lower = pTilde - numerator / denominator;
+      upper = Infinity;
+    } else if (intervalType === 'one-sided-upper') {
+      lower = -Infinity;
+      upper = pTilde + numerator / denominator;
+    } else {
+      lower = pTilde - numerator / denominator;
+      upper = pTilde + numerator / denominator;
+    }
     methodName = 'Wilson score interval';
   } else {
     // Wald interval (normal approximation)
     const standardError = Math.sqrt((proportion * (1 - proportion)) / trials);
     const marginOfError = criticalValue * standardError;
     
-    lower = proportion - marginOfError;
-    upper = proportion + marginOfError;
+    if (intervalType === 'one-sided-lower') {
+      lower = proportion - marginOfError;
+      upper = Infinity;
+    } else if (intervalType === 'one-sided-upper') {
+      lower = -Infinity;
+      upper = proportion + marginOfError;
+    } else {
+      lower = proportion - marginOfError;
+      upper = proportion + marginOfError;
+    }
     methodName = 'Wald interval (normal approximation)';
   }
   
-  // Ensure result is within [0, 1] range
-  lower = Math.max(0, lower);
-  upper = Math.min(1, upper);
-  const marginOfError = (upper - lower) / 2;
+  // Ensure result is within [0, 1] range only for finite bounds
+  if (isFinite(lower)) lower = Math.max(0, lower);
+  if (isFinite(upper)) upper = Math.min(1, upper);
+  
+  // For one-sided intervals, margin of error is the difference between point estimate and the finite bound
+  let marginOfError: number;
+  if (intervalType === 'one-sided-lower') {
+    marginOfError = proportion - lower;
+  } else if (intervalType === 'one-sided-upper') {
+    marginOfError = upper - proportion;
+  } else {
+    marginOfError = (upper - lower) / 2;
+  }
   
   return {
     lower,
@@ -866,7 +949,8 @@ export const calculateProportionConfidenceInterval = (successes: number, trials:
     marginOfError,
     method: methodName,
     criticalValue,
-    proportion
+    proportion,
+    intervalType
   };
 };
 
@@ -887,6 +971,7 @@ export const calculateProportionConfidenceInterval = (successes: number, trials:
  */
 export const calculateTwoProportionConfidenceInterval = (successes1: number, trials1: number, successes2: number, trials2: number, confidenceLevel: number = 0.95, options: {
   method?: 'wald' | 'continuity';
+  intervalType?: ConfidenceIntervalType;
 } = {}): {
   lower: number;
   upper: number;
@@ -896,6 +981,7 @@ export const calculateTwoProportionConfidenceInterval = (successes1: number, tri
   proportionDiff: number;
   proportion1: number;
   proportion2: number;
+  intervalType: ConfidenceIntervalType;
 } => {
   // Parameter validation
   if (trials1 <= 0 || trials2 <= 0) {
@@ -908,28 +994,30 @@ export const calculateTwoProportionConfidenceInterval = (successes1: number, tri
     throw new Error('Confidence level must be between 0 and 1');
   }
   
-  const { method = 'wald' } = options;
+  const { method = 'wald', intervalType = 'two-sided' } = options;
   
   // Calculate sample proportions
   const proportion1 = successes1 / trials1;
   const proportion2 = successes2 / trials2;
   const proportionDiff = proportion1 - proportion2;
   
-  // Calculate critical value (z-value)
+  // Calculate critical value (z-value) based on interval type
   let criticalValue: number;
+  const alpha = 1 - confidenceLevel;
+  const tailFactor = intervalType === 'two-sided' ? alpha / 2 : alpha;
+  
   switch (confidenceLevel) {
     case 0.90:
-      criticalValue = 1.645;
+      criticalValue = intervalType === 'two-sided' ? 1.645 : 1.282;
       break;
     case 0.95:
-      criticalValue = 1.96;
+      criticalValue = intervalType === 'two-sided' ? 1.96 : 1.645;
       break;
     case 0.99:
-      criticalValue = 2.576;
+      criticalValue = intervalType === 'two-sided' ? 2.576 : 2.326;
       break;
     default:
-      const alpha = 1 - confidenceLevel;
-      const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - alpha/2) - 1);
+      const zApprox = Math.sqrt(2) * inverseErrorFunction(2 * (1 - tailFactor) - 1);
       criticalValue = Math.abs(zApprox);
   }
   
@@ -946,23 +1034,48 @@ export const calculateTwoProportionConfidenceInterval = (successes1: number, tri
     const standardError = Math.sqrt((p1 * (1 - p1)) / trials1 + (p2 * (1 - p2)) / trials2);
     const marginOfError = criticalValue * standardError;
     
-    lower = pDiff - marginOfError;
-    upper = pDiff + marginOfError;
+    if (intervalType === 'one-sided-lower') {
+      lower = pDiff - marginOfError;
+      upper = Infinity;
+    } else if (intervalType === 'one-sided-upper') {
+      lower = -Infinity;
+      upper = pDiff + marginOfError;
+    } else {
+      lower = pDiff - marginOfError;
+      upper = pDiff + marginOfError;
+    }
     methodName = 'Continuity correction method';
   } else {
     // Wald interval (normal approximation)
     const standardError = Math.sqrt((proportion1 * (1 - proportion1)) / trials1 + (proportion2 * (1 - proportion2)) / trials2);
     const marginOfError = criticalValue * standardError;
     
-    lower = proportionDiff - marginOfError;
-    upper = proportionDiff + marginOfError;
+    if (intervalType === 'one-sided-lower') {
+      lower = proportionDiff - marginOfError;
+      upper = Infinity;
+    } else if (intervalType === 'one-sided-upper') {
+      lower = -Infinity;
+      upper = proportionDiff + marginOfError;
+    } else {
+      lower = proportionDiff - marginOfError;
+      upper = proportionDiff + marginOfError;
+    }
     methodName = 'Wald interval (normal approximation)';
   }
   
-  // Ensure result is within [-1, 1] range
-  lower = Math.max(-1, lower);
-  upper = Math.min(1, upper);
-  const marginOfError = (upper - lower) / 2;
+  // Ensure result is within [-1, 1] range only for finite bounds
+  if (isFinite(lower)) lower = Math.max(-1, lower);
+  if (isFinite(upper)) upper = Math.min(1, upper);
+  
+  // For one-sided intervals, margin of error is the difference between point estimate and the finite bound
+  let marginOfError: number;
+  if (intervalType === 'one-sided-lower') {
+    marginOfError = proportionDiff - lower;
+  } else if (intervalType === 'one-sided-upper') {
+    marginOfError = upper - proportionDiff;
+  } else {
+    marginOfError = (upper - lower) / 2;
+  }
   
   return {
     lower,
@@ -972,7 +1085,8 @@ export const calculateTwoProportionConfidenceInterval = (successes1: number, tri
     criticalValue,
     proportionDiff,
     proportion1,
-    proportion2
+    proportion2,
+    intervalType
   };
 };
 
@@ -994,6 +1108,7 @@ export const calculateTwoProportionConfidenceInterval = (successes1: number, tri
 export const calculateTwoSampleConfidenceInterval = (data1: number[], data2: number[], confidenceLevel: number = 0.95, options: {
   method?: 'pooled' | 'welch' | 'paired';
   isNormal?: boolean;
+  intervalType?: ConfidenceIntervalType;
 } = {}): {
   lower: number;
   upper: number;
@@ -1006,7 +1121,7 @@ export const calculateTwoSampleConfidenceInterval = (data1: number[], data2: num
     throw new Error('Data array cannot be empty');
   }
   
-  const { method = 'welch' } = options;
+  const { method = 'welch', intervalType = 'two-sided' } = options;
   const n1 = data1.length;
   const n2 = data2.length;
   
@@ -1032,8 +1147,13 @@ export const calculateTwoSampleConfidenceInterval = (data1: number[], data2: num
     // 标准误
     standardError = stdDiff / Math.sqrt(n1);
     
-    // 临界值
-    criticalValue = getApproximateTCriticalValue(n1 - 1, confidenceLevel);
+    // 根据置信区间类型计算临界值
+    if (intervalType === 'two-sided') {
+      criticalValue = getApproximateTCriticalValue(n1 - 1, confidenceLevel);
+    } else {
+      // 单边检验使用1 - α的置信水平
+      criticalValue = getApproximateTCriticalValue(n1 - 1, confidenceLevel * 2 - 1);
+    }
     methodName = '配对样本t检验';
   } else if (method === 'pooled') {
     // Pooled t-interval（方差相等假设）
@@ -1046,8 +1166,13 @@ export const calculateTwoSampleConfidenceInterval = (data1: number[], data2: num
     // 标准误
     standardError = Math.sqrt(pooledVar * (1/n1 + 1/n2));
     
-    // 临界值
-    criticalValue = getApproximateTCriticalValue(n1 + n2 - 2, confidenceLevel);
+    // 根据置信区间类型计算临界值
+    if (intervalType === 'two-sided') {
+      criticalValue = getApproximateTCriticalValue(n1 + n2 - 2, confidenceLevel);
+    } else {
+      // 单边检验使用1 - α的置信水平
+      criticalValue = getApproximateTCriticalValue(n1 + n2 - 2, confidenceLevel * 2 - 1);
+    }
     methodName = '合并方差t检验';
   } else {
     // Welch's t-interval（方差不等）
@@ -1062,17 +1187,35 @@ export const calculateTwoSampleConfidenceInterval = (data1: number[], data2: num
     const denominator = Math.pow(var1, 2)/(Math.pow(n1, 2)*(n1 - 1)) + Math.pow(var2, 2)/(Math.pow(n2, 2)*(n2 - 1));
     const df = Math.floor(numerator / denominator);
     
-    // 临界值
-    criticalValue = getApproximateTCriticalValue(df, confidenceLevel);
+    // 根据置信区间类型计算临界值
+    if (intervalType === 'two-sided') {
+      criticalValue = getApproximateTCriticalValue(df, confidenceLevel);
+    } else {
+      // 单边检验使用1 - α的置信水平
+      criticalValue = getApproximateTCriticalValue(df, confidenceLevel * 2 - 1);
+    }
     methodName = 'Welch t检验';
   }
   
   // 计算边际误差
   const marginOfError = criticalValue * standardError;
   
-  // 计算置信区间
-  const lower = meanDiff - marginOfError;
-  const upper = meanDiff + marginOfError;
+  // 根据区间类型计算置信区间
+  let lower: number;
+  let upper: number;
+  
+  if (intervalType === 'two-sided') {
+    lower = meanDiff - marginOfError;
+    upper = meanDiff + marginOfError;
+  } else if (intervalType === 'one-sided-lower') {
+    // 左侧单边：计算上限，下限为负无穷
+    lower = -Infinity;
+    upper = meanDiff + marginOfError;
+  } else { // one-sided-upper
+    // 右侧单边：计算下限，上限为无穷
+    lower = meanDiff - marginOfError;
+    upper = Infinity;
+  }
   
   return { 
     lower, 

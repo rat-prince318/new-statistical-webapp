@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Box, Text, Grid, Card, CardBody, Select, FormControl, FormLabel, Input, Button, Alert, ButtonGroup } from '@chakra-ui/react';
-import { calculateTwoSampleConfidenceInterval } from '../utils/statistics';
+import { calculateTwoSampleConfidenceInterval, ConfidenceIntervalType } from '../utils/statistics';
 
 interface TwoSampleMeanCIProps {
   dataset1?: number[];
@@ -32,6 +32,7 @@ function TwoSampleMeanCI({ dataset1 = [], dataset2 = [] }: TwoSampleMeanCIProps)
   // Analysis options
   const [confidenceLevel, setConfidenceLevel] = useState<string>('0.95');
   const [method, setMethod] = useState<'pooled' | 'welch'>('welch');
+  const [intervalType, setIntervalType] = useState<ConfidenceIntervalType>('two-sided');
   const [inputMode, setInputMode] = useState<'data' | 'stats'>('data');
   
   // Result state
@@ -68,7 +69,7 @@ function TwoSampleMeanCI({ dataset1 = [], dataset2 = [] }: TwoSampleMeanCIProps)
           data1,
           data2,
           confLevel,
-          { method }
+          { method, intervalType }
         );
         
         setResult(ciResult);
@@ -182,7 +183,7 @@ function TwoSampleMeanCI({ dataset1 = [], dataset2 = [] }: TwoSampleMeanCIProps)
             </Grid>
           )}
           
-          <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={4} mt={6}>
+          <Grid templateColumns={{ base: '1fr', md: 'repeat(3, 1fr)' }} gap={4} mt={6}>
             <FormControl>
               <FormLabel>Confidence Level</FormLabel>
               <Select value={confidenceLevel} onChange={(e) => setConfidenceLevel(e.target.value)}>
@@ -200,6 +201,18 @@ function TwoSampleMeanCI({ dataset1 = [], dataset2 = [] }: TwoSampleMeanCIProps)
               >
                 <option value="pooled">Assuming Equal Variances (Pooled)</option>
                 <option value="welch">Not Assuming Equal Variances (Welch)</option>
+              </Select>
+            </FormControl>
+            
+            <FormControl>
+              <FormLabel>Confidence Interval Type</FormLabel>
+              <Select
+                value={intervalType}
+                onChange={(e) => setIntervalType(e.target.value as ConfidenceIntervalType)}
+              >
+                <option value="two-sided">Two-Sided</option>
+                <option value="one-sided-lower">One-Sided Lower</option>
+                <option value="one-sided-upper">One-Sided Upper</option>
               </Select>
             </FormControl>
           </Grid>
@@ -230,13 +243,17 @@ function TwoSampleMeanCI({ dataset1 = [], dataset2 = [] }: TwoSampleMeanCIProps)
             <Card>
               <CardBody>
                 <Text fontSize="sm" color="gray.500">CI Lower Bound</Text>
-                <Text fontSize="2xl" fontWeight="bold">{result.lower.toFixed(4)}</Text>
+                <Text fontSize="2xl" fontWeight="bold">
+                  {result.lower === -Infinity ? "-∞" : result.lower.toFixed(4)}
+                </Text>
               </CardBody>
             </Card>
             <Card>
               <CardBody>
                 <Text fontSize="sm" color="gray.500">CI Upper Bound</Text>
-                <Text fontSize="2xl" fontWeight="bold">{result.upper.toFixed(4)}</Text>
+                <Text fontSize="2xl" fontWeight="bold">
+                  {result.upper === Infinity ? "+∞" : result.upper.toFixed(4)}
+                </Text>
               </CardBody>
             </Card>
             <Card>

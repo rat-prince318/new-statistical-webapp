@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Text, FormControl, FormLabel, Input, Select, Button, Card, CardBody, Grid, Alert } from '@chakra-ui/react';
-import { calculateProportionConfidenceInterval } from '../utils/statistics';
+import { calculateProportionConfidenceInterval, ConfidenceIntervalType } from '../utils/statistics';
 
 interface ProportionCIProps {
   dataset?: number[];
@@ -12,6 +12,7 @@ function ProportionCI({ dataset = [] }: ProportionCIProps) {
   const [sampleSize, setSampleSize] = useState<string>('');
   const [confidenceLevel, setConfidenceLevel] = useState<string>('0.95');
   const [method, setMethod] = useState<'wald' | 'wilson'>('wilson');
+  const [intervalType, setIntervalType] = useState<ConfidenceIntervalType>('two-sided');
   const [results, setResults] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -36,7 +37,7 @@ function ProportionCI({ dataset = [] }: ProportionCIProps) {
         throw new Error('Please enter valid success count and sample size');
       }
       
-      const result = calculateProportionConfidenceInterval(y, n, cl, { method });
+      const result = calculateProportionConfidenceInterval(y, n, cl, { method, intervalType });
       setResults(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Calculation error');
@@ -75,6 +76,17 @@ function ProportionCI({ dataset = [] }: ProportionCIProps) {
             <option value="0.90">90%</option>
             <option value="0.95">95%</option>
             <option value="0.99">99%</option>
+          </Select>
+        </FormControl>
+        <FormControl>
+          <FormLabel fontSize="sm">Confidence Interval Type</FormLabel>
+          <Select
+            value={intervalType}
+            onChange={(e) => setIntervalType(e.target.value as ConfidenceIntervalType)}
+          >
+            <option value="two-sided">Two-Sided</option>
+            <option value="one-sided-lower">One-Sided Lower</option>
+            <option value="one-sided-upper">One-Sided Upper</option>
           </Select>
         </FormControl>
         <FormControl>
@@ -140,10 +152,14 @@ function ProportionCI({ dataset = [] }: ProportionCIProps) {
                 {confidenceLevel === '0.95' ? '95%' : confidenceLevel === '0.90' ? '90%' : '99%'} Confidence Interval:
               </Text>
               <Text fontWeight="bold" fontSize="lg">
-                [
-                {results.lower !== undefined ? results.lower.toFixed(4) : 'N/A'},
-                {results.upper !== undefined ? results.upper.toFixed(4) : 'N/A'}
-                ]
+                {results.lower !== undefined && results.upper !== undefined 
+                  ? results.intervalType === 'one-sided-lower' 
+                    ? `[${results.lower.toFixed(4)}, +∞)` 
+                    : results.intervalType === 'one-sided-upper'
+                      ? `(-∞, ${results.upper.toFixed(4)}]`
+                      : `[${results.lower.toFixed(4)}, ${results.upper.toFixed(4)}]`
+                  : 'N/A'
+                }
               </Text>
             </Box>
           </CardBody>

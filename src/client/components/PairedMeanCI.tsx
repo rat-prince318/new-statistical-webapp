@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Box, Text, Button, VStack, HStack, Card, CardBody, Table, Tr, Th, Td, Alert, Select, Textarea } from '@chakra-ui/react';
-import { calculateTwoSampleConfidenceInterval } from '../utils/statistics';
+import { Box, Text, Button, VStack, HStack, Card, CardBody, Table, Tr, Th, Td, Alert, Select, Textarea, Switch, FormControl, FormLabel } from '@chakra-ui/react';
+import { calculateTwoSampleConfidenceInterval, ConfidenceIntervalType, getZCriticalValue } from '../utils/statistics';
 
 interface PairedMeanCIProps {
   pairedData?: { before: number[]; after: number[] };
@@ -10,6 +10,9 @@ function PairedMeanCI({ pairedData = { before: [], after: [] } }: PairedMeanCIPr
   const [beforeData, setBeforeData] = useState<string>('');
   const [afterData, setAfterData] = useState<string>('');
   const [confidenceLevel, setConfidenceLevel] = useState<string>('0.95');
+  const [intervalType, setIntervalType] = useState<ConfidenceIntervalType>('two-sided');
+  const [knownVariance, setKnownVariance] = useState<boolean>(false);
+  const [populationVariance, setPopulationVariance] = useState<string>('');
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string>('');
 
@@ -46,14 +49,64 @@ function PairedMeanCI({ pairedData = { before: [], after: [] } }: PairedMeanCIPr
         throw new Error('Before and after datasets must have the same length');
       }
 
-      const ciResult = calculateTwoSampleConfidenceInterval(
-        before,
-        after,
-        confidence,
-        { method: 'paired' }
-      );
-
-      setResult(ciResult);
+      // 验证已知方差的有效性
+      if (knownVariance) {
+        const variance = parseFloat(populationVariance);
+        if (isNaN(variance) || variance <= 0) {
+          throw new Error('Population variance must be a positive number');
+        }
+        
+        // 计算差值
+        const differences = before.map((x, i) => x - after[i]);
+        const meanDiff = differences.reduce((sum, val) => sum + val, 0) / differences.length;
+        const standardError = Math.sqrt(variance) / Math.sqrt(differences.length);
+        
+        // 根据置信区间类型计算临界值
+        let criticalValue: number;
+        if (intervalType === 'two-sided') {
+          criticalValue = getZCriticalValue(confidence);
+        } else {
+          criticalValue = getZCriticalValue(2 * confidence - 1);
+        }
+        
+        const marginOfError = criticalValue * standardError;
+        
+        // 根据区间类型计算置信区间
+        let lower: number;
+        let upper: number;
+        
+        if (intervalType === 'two-sided') {
+          lower = meanDiff - marginOfError;
+          upper = meanDiff + marginOfError;
+        } else if (intervalType === 'one-sided-lower') {
+          lower = -Infinity;
+          upper = meanDiff + marginOfError;
+        } else { // one-sided-upper
+          lower = meanDiff - marginOfError;
+          upper = Infinity;
+        }
+        
+        setResult({
+          lower,
+          upper,
+          marginOfError,
+          method: '配对样本Z检验（方差已知）',
+          criticalValue,
+          meanDiff,
+          intervalType
+        });
+      } else {
+        // 使用t检验（方差未知）
+        const ciResult = calculateTwoSampleConfidenceInterval(
+          before,
+          after,
+          confidence,
+          { method: 'paired', intervalType }
+        );
+        
+        // 添加intervalType到结果中
+        setResult({ ...ciResult, intervalType });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Calculation error');
       setResult(null);
@@ -116,7 +169,51 @@ function PairedMeanCI({ pairedData = { before: [], after: [] } }: PairedMeanCIPr
                 <option value="0.999">99.9%</option>
               </Select>
             </Box>
-            <Button onClick={handleCalculate} colorScheme="blue" size="lg">
+            <Box flex={1}>
+              <Text fontWeight="medium" mb={2}>Confidence Interval Type</Text>
+              <Select
+                value={intervalType}
+                onChange={(e) => setIntervalType(e.target.value as ConfidenceIntervalType)}
+                size="lg"
+              >
+                <option value="two-sided">Two-sided</option>
+                <option value="one-sided-lower">One-sided (lower bound)</option>
+                <option value="one-sided-upper">One-sided (upper bound)</option>
+              </Select>
+            </Box>
+          </HStack>
+          
+          <HStack mt={4}>
+            <FormControl>
+              <FormLabel>Known Population Variance</FormLabel>
+              <Switch
+                isChecked={knownVariance}
+                onChange={(e) => setKnownVariance(e.target.checked)}
+              />
+            </FormControl>
+            
+            {knownVariance && (
+              <Box flex={1} ml={4}>
+                <Text fontWeight="medium" mb={2}>Population Variance Value</Text>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={populationVariance}
+                  onChange={(e) => setPopulationVariance(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '1rem'
+                  }}
+                  placeholder="Enter population variance"
+                />
+              </Box>
+            )}
+            
+            <Button onClick={handleCalculate} colorScheme="blue" size="lg" ml={4}>
               Calculate Confidence Interval
             </Button>
           </HStack>
@@ -146,11 +243,29 @@ function PairedMeanCI({ pairedData = { before: [], after: [] } }: PairedMeanCIPr
                 </Tr>
                 <Tr>
                   <Th>Confidence Interval</Th>
-                  <Td>[{result.lower.toFixed(4)}, {result.upper.toFixed(4)}]</Td>
+                  <Td>
+                    {result.intervalType === 'one-sided-lower'
+                      ? `[${result.lower.toFixed(4)}, +∞)`
+                      : result.intervalType === 'one-sided-upper'
+                        ? `(-∞, ${result.upper.toFixed(4)}]`
+                        : `[${result.lower.toFixed(4)}, ${result.upper.toFixed(4)}]`
+                    }
+                  </Td>
                 </Tr>
               </tbody>
             </Table>
 
+            <Box mt={4}>
+              <Text fontSize="sm">
+                {result.intervalType === 'one-sided-lower'
+                  ? `We are ${parseFloat(confidenceLevel) * 100}% confident that the true mean difference is at least ${result.lower.toFixed(4)}.`
+                  : result.intervalType === 'one-sided-upper'
+                    ? `We are ${parseFloat(confidenceLevel) * 100}% confident that the true mean difference is at most ${result.upper.toFixed(4)}.`
+                    : `We are ${parseFloat(confidenceLevel) * 100}% confident that the true mean difference lies between [${result.lower.toFixed(4)}, ${result.upper.toFixed(4)}].`
+                }
+              </Text>
+            </Box>
+            
             {differences.length > 0 && (
               <Box mt={4}>
                 <Text fontWeight="medium" mb={2}>Difference Data Statistics</Text>
